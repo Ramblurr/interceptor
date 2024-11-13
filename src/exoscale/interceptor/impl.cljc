@@ -59,9 +59,17 @@
   [ctx interceptor stage err]
   (if-let [f (get interceptor stage)]
     (try
-      (let [ctx' (if err
-                   (f (dissoc ctx :exoscale.interceptor/error) err)
-                   (f ctx))]
+      (let [ctx' #?(:clj (with-bindings (or (:bindings ctx) {})
+                           ;; Given the various async
+                           ;; executors may exec on different threads,
+                           ;; the fn must be bound in order to preserve
+                           ;; bindings
+                           (if err
+                             ((bound-fn* f) (dissoc ctx :exoscale.interceptor/error) err)
+                             ((bound-fn* f) ctx)))
+                    :cljs (if err
+                            (f (dissoc ctx :exoscale.interceptor/error) err)
+                            (f ctx)))]
         (cond-> ctx'
           (p/async? ctx')
           (p/catch (fn [e] (assoc ctx :exoscale.interceptor/error e)))))

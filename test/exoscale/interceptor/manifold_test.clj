@@ -159,3 +159,16 @@
                            ;; just to make sure we preserve chaining
                            {:enter (fn [ctx] (assoc ctx :g 7))}])
              (select-keys [:a :b :c :d :e :f :g])))))
+
+(def ^:dynamic *boundv* 41)
+(def bindings-result {:result 43})
+
+(deftest manifold-bindings-test
+  (let [bindings-chain [{:enter (fn [ctx] (d/future (assoc ctx :bindings {#'*boundv* 42})))}
+                        {:enter #(d/success-deferred (update-in % [:bindings #'*boundv*] inc))}
+                        #(d/success-deferred (assoc % :result *boundv*))]]
+
+    (is (= bindings-result
+           (-> (ixm/execute {} bindings-chain)
+               deref
+               clean-ctx)))))

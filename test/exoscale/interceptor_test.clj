@@ -30,7 +30,7 @@
 
 (defn clean-ctx
   [ctx]
-  (dissoc ctx ::ix/queue ::ix/stack))
+  (dissoc ctx ::ix/queue ::ix/stack :bindings))
 
 (deftest a-test-workflow
   (is (= default-result
@@ -256,3 +256,35 @@
               :leave (fn [ctx] (q/error-future ex))}]
     (is (thrown? Exception @(ixq/execute start-ctx
                                          [dinc])))))
+
+(def ^:dynamic *boundv* 41)
+(def bindings-result {:result 43})
+
+(deftest use-bindings-test
+  ;; bindings are conveyed across interceptor chain
+  (let [bindings-chain [{:enter #(assoc % :bindings {#'*boundv* 42})}
+                        {:enter (fn [ctx] (is (= 42 *boundv*)) ctx)}
+                        {:enter #(update-in % [:bindings #'*boundv*] inc)}
+                        #(assoc % :result *boundv*)]]
+
+    (is (= bindings-result (-> (ix/execute {} bindings-chain)
+                               clean-ctx)))))
+
+(deftest core-async-bindings-test
+  (let [bindings-chain [{:enter #(a/go (assoc % :bindings {#'*boundv* 42}))}
+                        {:enter #(a/go (update-in % [:bindings #'*boundv*] inc))
+                         :leave #(a/go (update-in % [:bindings #'*boundv*] dec))}
+                        #(a/go (assoc % :result *boundv*))]]
+
+    (is (= bindings-result (-> (ixa/execute {} bindings-chain)
+                               a/<!!
+                               clean-ctx)))))
+
+(deftest auspex-bindings-test
+  (let [bindings-chain [{:enter (fn [ctx] (q/future (fn [] (assoc ctx :bindings {#'*boundv* 42}))))}
+                        {:enter #(q/success-future (update-in % [:bindings #'*boundv*] inc))}
+                        #(q/success-future (assoc % :result *boundv*))]]
+
+    (is (= bindings-result (-> (ixq/execute {} bindings-chain)
+                               deref
+                               clean-ctx)))))
